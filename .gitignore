@@ -1,3 +1,6 @@
+main.py
+Pipfile
+Pipfile.lock
+workflow.drawio
 assets/*
 datasets/*
-main.py
