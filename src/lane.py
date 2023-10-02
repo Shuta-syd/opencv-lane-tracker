@@ -1,4 +1,6 @@
+import sys
 import cv2
+import os
 import numpy as np
 import edge_detection as edge
 import matplotlib.pyplot as plt
@@ -18,18 +20,11 @@ class Lane:
     self.width = width
     self.height = height
 
-    # self.roi_points = np.float32([
-    #   (474, 431), # Top-left corner
-    #   (121, 670),   # Bottom-left corner
-    #   (1090, 670), # Bottom-right corner
-    #   (760, 431)  # Top-right corner
-    # ])
-
     self.roi_points = np.float32([
-      (430, 300), # Top-left corner
-      (0, 534),   # Bottom-left corner
-      (880, 534), # Bottom-right corner
-      (610, 300)  # Top-right corner
+      (474, 295), # Top-left corner
+      (7, 528),   # Bottom-left corner
+      (900, 528), # Bottom-right corner
+      (615, 295)  # Top-right corner
     ])
 
     self.padding = int(0.25 * width)
@@ -95,6 +90,7 @@ class Lane:
     rs_binary = cv2.bitwise_and(s_binary, r_thresh)
 
     self.lane_line_markings = cv2.bitwise_or(rs_binary, sxbinary.astype(np.uint8))
+
     return self.lane_line_markings
 
   """
@@ -161,7 +157,7 @@ class Lane:
       frame = self.warped_frame
 
     # generate the histogram
-    self.histogram = np.sum(frame[int(frame.shape[0] / 2):, :], axis=0)
+    self.histogram = np.sum(frame[:frame.shape[0]:, :], axis=0)
 
     if plot == True:
 
@@ -281,9 +277,7 @@ class Lane:
       out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [255, 0, 0]
 
       # Plot the figure with the sliding windows
-      figure, (ax1, ax2, ax3) = plt.subplots(3,1) # 3 rows, 1 column
-      figure.set_size_inches(10, 10)
-      figure.tight_layout(pad=3.0)
+      figure, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))  # 1 row, 3 columns
       ax1.imshow(cv2.cvtColor(self.orig_frame, cv2.COLOR_BGR2RGB))
       ax2.imshow(frame_sliding_window, cmap='gray')
       ax3.imshow(out_img)
@@ -292,6 +286,7 @@ class Lane:
       ax1.set_title("Original Frame")
       ax2.set_title("Warped Frame with Sliding Windows")
       ax3.set_title("Detected Lane Lines with Sliding Windows")
+      plt.tight_layout()
       plt.show()
     return self.left_fit, self.right_fit
 
@@ -411,11 +406,14 @@ class Lane:
     pts_left = np.array([np.transpose(
       np.vstack([self.left_fitx, self.ploty])
       )])
+
     pts_right = np.array([np.flipud(np.transpose(
       np.vstack([self.right_fitx, self.ploty])
       ))])
+
     pts = np.hstack((pts_left, pts_right))
 
+    np.set_printoptions(threshold = sys.maxsize)
     # Draw lane on the warped blank image
     cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
 
@@ -428,16 +426,15 @@ class Lane:
 
     if plot == True:
       # Plot the figures
-      figure, (ax1, ax2) = plt.subplots(2,1) # 2 rows, 1 column
-      figure.set_size_inches(10, 10)
-      figure.tight_layout(pad=3.0)
+      figure, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
       ax1.imshow(cv2.cvtColor(self.orig_frame, cv2.COLOR_BGR2RGB))
       ax2.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
       ax1.set_title("Original Frame")
       ax2.set_title("Original Frame With Lane Overlay")
+      plt.tight_layout()
       plt.show()
 
-    return result
+    return result, newwarp
 
   """
     Calculate the road curvature in meters
@@ -447,19 +444,14 @@ class Lane:
   """
   def calculate_curvature(self, point_to_terminal=False):
 
-    # set the y-value where we want to calculate the road curvature
-    # Select the maximum y-value which is the bottom of the frame
     y_eval = np.max(self.ploty)
 
-    # Fit polynomial curves to the real world environment
     left_fit_cr = np.polyfit(self.lefty * self.YM_PER_PIX, self.leftx * (self.XM_PER_PIX), 2)
     right_fit_cr = np.polyfit(self.righty * self.YM_PER_PIX, self.rightx * (self.XM_PER_PIX), 2)
 
-    # Calculate the radii of curvature
     left_curvem = ((1 + (2*left_fit_cr[0] * y_eval * self.YM_PER_PIX + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
     right_curvem = ((1 + (2*right_fit_cr[0] * y_eval * self.YM_PER_PIX + right_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
 
-    # Display on terminal window
     if point_to_terminal == True:
       print(left_curvem, 'm', right_curvem, 'm')
 
@@ -524,41 +516,48 @@ class Lane:
     return image_copy
 
 
-if __name__ == '__main__':
+def lane_tracker_video():
   cap = cv2.VideoCapture('./assets/road1.mp4')
-  _, original_frame = cap.read()
-  _, original_frame = cap.read()
-  lane_obj = Lane(orig_frame=original_frame)
+  while(cap.isOpened()):
+    ret, original_frame = cap.read()
+    if ret == False:
+      break
+    lane_obj = Lane(orig_frame=original_frame)
 
-  # Perform thresholding to isolate lane lines
-  lane_line_markings = lane_obj.get_line_markings()
+    # Perform thresholding to isolate lane lines
+    lane_line_markings = lane_obj.get_line_markings()
 
-  # Plot the region of interest on the iamge
-  lane_obj.plot_roi(plot=False)
+    # Plot the region of interest on the iamge
+    lane_obj.plot_roi(plot=False)
 
-  # Perform the perspective transform to generate a bird's eye view
-  warped_frame = lane_obj.perspective_transform(plot=False)
+    # Perform the perspective transform to generate a bird's eye view
+    warped_frame = lane_obj.perspective_transform(plot=False)
 
-  # Generate the image histogram to serve as a starting point for finding lane line pixels
-  histogram = lane_obj.calculate_histogram(plot=True)
+    # Generate the image histogram to serve as a starting point for finding lane line pixels
+    histogram = lane_obj.calculate_histogram(plot=False)
 
-  # Find lane line pixels using the sliding window method
-  left_fit, right_fit = lane_obj.get_lane_line_indices_sliding_windows(plot=False)
+    # Find lane line pixels using the sliding window method
+    left_fit, right_fit = lane_obj.get_lane_line_indices_sliding_windows(plot=False)
 
-  # Fill in the lane line
-  lane_obj.get_lane_line_previous_window(left_fit, right_fit, plot=False)
+    # Fill in the lane line
+    lane_obj.get_lane_line_previous_window(left_fit, right_fit, plot=False)
 
-  # Overlay lines on the original frame
-  frame_with_lane_lines = lane_obj.overlay_lane_lines(plot=False)
+    # Overlay lines on the original frame
+    frame_with_lane_lines, save_img = lane_obj.overlay_lane_lines(plot=False)
 
-  # Calculate lane line curvature (left and right lane lines)
-  lane_obj.calculate_curvature(point_to_terminal=False)
+    # Calculate lane line curvature (left and right lane lines)
+    lane_obj.calculate_curvature(point_to_terminal=False)
 
-  # Calculate center offset
-  lane_obj.calculate_car_position(print_to_terminal=False)
+    # Calculate center offset
+    lane_obj.calculate_car_position(print_to_terminal=False)
 
-  # Display curvature and center offset on image
-  frame_with_lane_lines2 = lane_obj.display_curvature_offset(frame=frame_with_lane_lines, plot=True)
+    # Display curvature and center offset on image
+    frame_with_lane_lines2 = lane_obj.display_curvature_offset(frame=frame_with_lane_lines, plot=True)
+    if cv2.waitKey(10) == 27:
+      break
+  cap.release()
+  cv2.destroyAllWindows()
 
-  # cv2.waitKey(0)
-  # cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+  lane_tracker_video()
